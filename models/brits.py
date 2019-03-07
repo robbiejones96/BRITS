@@ -11,7 +11,7 @@ import utils
 import argparse
 import data_loader
 
-import rits
+from models import rits
 from sklearn import metrics
 
 from ipdb import set_trace
@@ -21,13 +21,13 @@ RNN_HID_SIZE = 64
 
 
 class Model(nn.Module):
-    def __init__(self):
+    def __init__(self, dim=SEQ_LEN):
         super(Model, self).__init__()
-        self.build()
+        self.build(dim)
 
-    def build(self):
-        self.rits_f = rits.Model()
-        self.rits_b = rits.Model()
+    def build(self, dim=SEQ_LEN):
+        self.rits_f = rits.Model(dim)
+        self.rits_b = rits.Model(dim)
 
     def forward(self, data):
         ret_f = self.rits_f(data, 'forward')

@@ -20,7 +20,7 @@ def to_var(var):
             var[key] = to_var(var[key])
         return var
     if isinstance(var, list):
-        var = map(lambda x: to_var(x), var)
+        var = [to_var(x) for x in var]
         return var
 
 def stop_gradient(x):

@@ -14,7 +14,6 @@ import data_loader
 from ipdb import set_trace
 from sklearn import metrics
 
-SEQ_LEN = 49
 RNN_HID_SIZE = 64
 
 def binary_cross_entropy_with_logits(input, target, weight=None, size_average=True, reduce=True):
@@ -43,6 +42,7 @@ class FeatureRegression(nn.Module):
         self.W = Parameter(torch.Tensor(input_size, input_size))
         self.b = Parameter(torch.Tensor(input_size))
 
+        # constrain weight matrix to have zeros along diagonal
         m = torch.ones(input_size, input_size) - torch.eye(input_size, input_size)
         self.register_buffer('m', m)
 
@@ -91,38 +91,46 @@ class TemporalDecay(nn.Module):
         return gamma
 
 class Model(nn.Module):
-    def __init__(self):
+    def __init__(self, input_dim = 35, hidden_size = RNN_HID_SIZE):
         super(Model, self).__init__()
-        self.build()
+        self.build(input_dim, hidden_size)
 
-    def build(self):
-        self.rnn_cell = nn.LSTMCell(35 * 2, RNN_HID_SIZE)
+    def build(self, input_dim=35, hidden_size = RNN_HID_SIZE):
+        self.rnn_cell = nn.LSTMCell(input_dim * 2, hidden_size)
 
-        self.temp_decay_h = TemporalDecay(input_size = 35, output_size = RNN_HID_SIZE, diag = False)
-        self.temp_decay_x = TemporalDecay(input_size = 35, output_size = 35, diag = True)
+        self.temp_decay_h = TemporalDecay(input_size = input_dim, output_size = RNN_HID_SIZE, diag = False)
+        self.temp_decay_x = TemporalDecay(input_size = input_dim, output_size = input_dim, diag = True)
 
-        self.hist_reg = nn.Linear(RNN_HID_SIZE, 35)
-        self.feat_reg = FeatureRegression(35)
+        self.hist_reg = nn.Linear(RNN_HID_SIZE, input_dim)
+        self.feat_reg = FeatureRegression(input_dim)
 
-        self.weight_combine = nn.Linear(35 * 2, 35)
+        self.weight_combine = nn.Linear(input_dim * 2, input_dim)
 
         self.dropout = nn.Dropout(p = 0.25)
         self.out = nn.Linear(RNN_HID_SIZE, 1)
 
-    def forward(self, data, direct):
-        # Original sequence with 24 time steps
-        values = data[direct]['values']
-        masks = data[direct]['masks']
-        deltas = data[direct]['deltas']
+    def forward(self, data, direction):
+    """
+    Passes batched data through the RITS algorithm (4.1.1 in the paper)
 
-        evals = data[direct]['evals']
-        eval_masks = data[direct]['eval_masks']
+    :param data: (dict) storing time series data for forward and backward directions
+    :param direction: (str) either "forward" or "backward"
+    :returns: (dict) storing
+        * loss: (float) MAE + classification loss (if applicable)
+        * predictions: (Tensor) storing predicted labels
+        * imputations: 
+    """
+        x_t = data[direction]["x_t"]
+        masks = data[direction]["masks"]
+        deltas = data[direction]["deltas"]
 
-        labels = data['labels'].view(-1, 1)
-        is_train = data['is_train'].view(-1, 1)
+        evals = data[direction]["evals"]
+        eval_masks = data[direction]["eval_masks"]
 
-        h = Variable(torch.zeros((values.size()[0], RNN_HID_SIZE)))
-        c = Variable(torch.zeros((values.size()[0], RNN_HID_SIZE)))
+        is_train = data["is_train"].view(-1, 1)
+
+        h = torch.zeros((x_t.size()[0], RNN_HID_SIZE))
+        c = torch.zeros((x_t.size()[0], RNN_HID_SIZE))
 
         if torch.cuda.is_available():
             h, c = h.cuda(), c.cuda()
@@ -132,8 +140,9 @@ class Model(nn.Module):
 
         imputations = []
 
-        for t in range(SEQ_LEN):
-            x = values[:, t, :]
+        seq_len = x_t.size()[1]
+        for t in range(seq_len):
+            x = x_t[:, t, :]
             m = masks[:, t, :]
             d = deltas[:, t, :]
 
@@ -162,21 +171,22 @@ class Model(nn.Module):
             h, c = self.rnn_cell(inputs, (h, c))
 
             imputations.append(c_c.unsqueeze(dim = 1))
+            
 
         imputations = torch.cat(imputations, dim = 1)
 
         y_h = self.out(h)
-        y_loss = binary_cross_entropy_with_logits(y_h, labels, reduce = False)
-        y_loss = torch.sum(y_loss * is_train) / (torch.sum(is_train) + 1e-5)
+        # y_loss = binary_cross_entropy_with_logits(y_h, labels, reduce = False)
+        # y_loss = torch.sum(y_loss * is_train) / (torch.sum(is_train) + 1e-5)
 
-        y_h = F.sigmoid(y_h)
+        y_h = torch.sigmoid(y_h)
 
-        return {'loss': x_loss / SEQ_LEN + y_loss * 0.3, 'predictions': y_h,\
-                'imputations': imputations, 'labels': labels, 'is_train': is_train,\
+        return {'loss': x_loss / seq_len + y_loss * 0.3, 'predictions': y_h,\
+                'imputations': imputations, 'is_train': is_train,\
                 'evals': evals, 'eval_masks': eval_masks}
 
     def run_on_batch(self, data, optimizer):
-        ret = self(data, direct = 'forward')
+        ret = self(data, direction = 'forward')
 
         if optimizer is not None:
             optimizer.zero_grad()

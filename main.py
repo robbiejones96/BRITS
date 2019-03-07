@@ -1,3 +1,37 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+Usage:
+    main.py train [options]
+
+Options:
+    -h --help                               show this screen.
+    --cuda                                  use GPU
+    --model=<name>                          model to use (rits, brits, rits_i, brits_i) [default: brits]
+    --train-src=<file>                      train source JSON file [default: ./json/json]
+    --train-tgt=<file>                      train target file
+    --dev-src=<file>                        dev source file
+    --dev-tgt=<file>                        dev target file
+    --seed=<int>                            seed [default: 0]
+    --batch-size=<int>                      batch size [default: 32]
+    --hidden-size=<int>                     hidden size [default: 256]
+    --clip-grad=<float>                     gradient clipping [default: 5.0]
+    --log-every=<int>                       log every [default: 10]
+    --max-epoch=<int>                       max epoch [default: 1000]
+    --input-feed                            use input feeding
+    --patience=<int>                        wait for how many iterations to decay learning rate [default: 5]
+    --max-num-trial=<int>                   terminate training after how many trials [default: 5]
+    --lr-decay=<float>                      learning rate decay [default: 0.5]
+    --sample-size=<int>                     sample size [default: 5]
+    --lr=<float>                            learning rate [default: 0.001]
+    --uniform-init=<float>                  uniformly initialize all parameters [default: 0.1]
+    --save-to=<file>                        model save path [default: model.bin]
+    --valid-niter=<int>                     perform validation after how many iterations [default: 2000]
+    --dropout=<float>                       dropout [default: 0.3]
+"""
+
+from docopt import docopt
 import copy
 import torch
 import torch.nn as nn
@@ -9,42 +43,37 @@ import numpy as np
 
 import time
 import utils
-import models
+import models.rits_i
 import argparse
 import data_loader
 import pandas as pd
 import ujson as json
 
 from sklearn import metrics
-
 from ipdb import set_trace
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--epochs', type = int, default = 1000)
-parser.add_argument('--batch_size', type = int, default = 32)
-parser.add_argument('--model', type = str)
-args = parser.parse_args()
 
-def train(model):
-    optimizer = optim.Adam(model.parameters(), lr = 1e-3)
-
-    data_iter = data_loader.get_loader(batch_size = args.batch_size)
-
-    for epoch in xrange(args.epochs):
+def train(model_name, args):
+    data_iter, dim = data_loader.get_loader(args["--train-src"], batch_size = int(args["--batch-size"]))
+    model = getattr(models, model_name).Model(dim)
+    optimizer = optim.Adam(model.parameters(), float(args["--lr"]))
+    for epoch in range(int(args["--max-epoch"])):
         model.train()
 
         run_loss = 0.0
 
         for idx, data in enumerate(data_iter):
-            data = utils.to_var(data)
             ret = model.run_on_batch(data, optimizer)
 
-            run_loss += ret['loss'].data[0]
+            run_loss += ret['loss'].item()
 
-            print '\r Progress epoch {}, {:.2f}%, average loss {}'.format(epoch, (idx + 1) * 100.0 / len(data_iter), run_loss / (idx + 1.0)),
+            print("\r Progress epoch {}, {:.2f}%, average loss {}".format(epoch, (idx + 1) * 100.0 / len(data_iter), run_loss / (idx + 1.0)))
 
-        if epoch % 1 == 0:
-            evaluate(model, data_iter)
+        if run_loss < 20:
+            print(ret["imputations"])
+            break
+
+    evaluate(model, data_iter)
 
 def evaluate(model, val_iter):
     model.eval()
@@ -80,21 +109,22 @@ def evaluate(model, val_iter):
     labels = np.asarray(labels).astype('int32')
     preds = np.asarray(preds)
 
-    print 'AUC {}'.format(metrics.roc_auc_score(labels, preds))
+    print('AUC {}'.format(metrics.roc_auc_score(labels, preds)))
 
     evals = np.asarray(evals)
     imputations = np.asarray(imputations)
 
-    print 'MAE', np.abs(evals - imputations).mean()
-    print 'MRE', np.abs(evals - imputations).sum() / np.abs(evals).sum()
+    print('MAE', np.abs(evals - imputations).mean())
+    print('MRE', np.abs(evals - imputations).sum() / np.abs(evals).sum())
 
 def run():
-    model = getattr(models, args.model).Model()
+    args = docopt(__doc__)
+    
 
-    if torch.cuda.is_available():
+    if args["--cuda"]:
         model = model.cuda()
 
-    train(model)
+    train(args["--model"], args)
 
 if __name__ == '__main__':
     run()
