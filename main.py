@@ -3,13 +3,12 @@
 
 """
 Usage:
-    main.py train [options]
+    main.py train --train-src=<train-src> [options]
 
 Options:
     -h --help                               show this screen.
     --cuda                                  use GPU
     --model=<name>                          model to use (rits, brits, rits_i, brits_i) [default: brits]
-    --train-src=<file>                      train source JSON file [default: ./json/json]
     --train-tgt=<file>                      train target file
     --dev-src=<file>                        dev source file
     --dev-tgt=<file>                        dev target file
