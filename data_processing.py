@@ -1,11 +1,14 @@
 """ Usage:
     data_processing.py convert --data-folder=<data-folder> [options]
     data_processing.py validate --json-file=<json-file>
+    data_processing.py info --json-file=<json-file>
 
     Options:
         --file-extension=<file-extension>                       File format for the data files [default: csv]
         --output-file=<output-file>                             JSON output file name [default: output]
-        --file-regex=<file-regex>                               Regex to match files for extraction                       
+        --file-regex=<file-regex>                               Regex to match files for extraction    
+        --train-split=<train-split>                             Proportion (float) of files to use as training set   
+        --seed=<seed>                                           Random seed                
 """
 
 import pandas as pd
@@ -15,12 +18,26 @@ import json
 import matplotlib.pyplot as plt
 import re
 from docopt import docopt
+from pdb import set_trace
 
 TIME_STEP = 8.3 #TODO: check if units are important, right now this is in milliseconds
 MISSING_VALUE = 0.0 #i.e., a 0 indicates a missing value
 COLUMN_TO_REMOVE = 30 #synthetically create missing data point in this column for evaluation purposes
 MISSING_PROB = 0.3 # probability that we manually remove a datapoint for evaluation purposes
 SUPPORTED_FILE_TYPES = set(["csv"])
+
+def read_json(json_file):
+    json_data = None
+    print("Loading json data from {}".format(os.path.abspath(json_file)))
+    with open(json_file, 'r') as input_file:
+        json_data = json.load(input_file)
+    return json_data
+
+def save_json(json_data, data_folder, json_file_name):
+    output_file_path = os.path.join(data_folder, json_file_name + ".json")
+    print("Saving JSON to {}".format(os.path.abspath(output_file_path)))
+    with open(output_file_path, 'w') as output_file:
+        json.dump(json_data, output_file)
 
 def validate_pair(pair):
     """
@@ -44,11 +61,7 @@ def validate(input_file_path, print_every = 50):
     :param input_file_path: the file path to the .json file created from convert
     :param print_every: int determining how often method prints status
     """
-
-    json_data = None
-    print("Loading json data from {}".format(input_file_path))
-    with open(input_file_path, 'r') as input_file:
-        json_data = json.load(input_file)
+    json_data = read_json(input_file_path)
     print("{} sequences in this file.".format(len(json_data)))
     for i, pair in enumerate(json_data):
         if (i + 1) % print_every == 0:
@@ -134,7 +147,6 @@ def extract_forward_and_backward(df):
     num_rows = df.shape[0]
     masks, deltas = None, None
     forward = []
-    np.random.seed(42)
     for t in range(num_rows):
         x_t = df.iloc[t][:60] # for now just focusing on first 60 columns
         ret, masks, deltas = generate_JSON_entry(x_t, masks, deltas)
@@ -144,7 +156,7 @@ def extract_forward_and_backward(df):
 
 def extract_json_entry(file_path):
     """
-    Takes path to data file and its file extension and extracts the forward and
+    Takes path to data file and extracts the forward and
     backward sequences to be saved to JSON
 
     :param file_path: path to file storing sequence of measurements
@@ -155,7 +167,7 @@ def extract_json_entry(file_path):
     """
     forward, backward = None, None
     file_extension = os.path.splitext(file_path)[1]
-    if file_extension == "csv":
+    if file_extension == ".csv":
         df = load_and_clean_df(file_path)
         forward, backward = extract_forward_and_backward(df)
     return {"forward": forward, "backward": backward}
@@ -175,23 +187,44 @@ def extract_json(data_folder, regex, file_extension):
         if regex.search(file):
             print("Converting file {} to JSON".format(file))
             file_path = os.path.join(data_folder, file)
-            json_entry = extract_json_entry(file_path, file_extension)
+            json_entry = extract_json_entry(file_path)
             json_data.append(json_entry)
     return json_data
 
-def convert(data_folder, file_extension, file_regex, output_file_name):
+def convert(args):
     """
     Converts files into JSON format for BRITS models
 
-    :param data_folder: path to folder storing data files to be converted
-    :param file_extension: the file extension of the data files to be converted
-        - only the file types in SUPPORTED_FILE_TYPES (see constants at top)
-          are supported
-    :param file_regex: regex to specify file names to be converted
-        - if file_regex is None, then method will convert all files of
-          type file_extension
-    :param output_file_name: file name to save JSON output file
+    :param args: dict of command line arguments 
+        - data_folder: path to folder storing data files to be converted
+        - file_extension: the file extension of the data files to be converted
+            - only the file types in SUPPORTED_FILE_TYPES (see constants at top)
+              are supported
+        - file_regex: regex to specify file names to be converted
+            - if file_regex is None, then method will convert all files of
+              type file_extension
+        - train_split: proportion of files to use as training set
+            - if None, then JSON data will be saved into one file
+            - otherwise, will be saved into two files, one for train and one for test
+        - output_file_name: file name to save JSON output file
+            - if train_split is not None, then JSON data will be saved into two files
+                - train set will be prefixed by "train_", test set prefixed by "test_"
+        - seed: random seed
+            - current randomness comes from random train/test split and random removal
+              of values for imputation
     """
+
+    data_folder = args["--data-folder"]
+    file_extension = args["--file-extension"]
+    file_regex = args["--file-regex"]
+    output_file_name = args["--output-file"]
+    train_split = float(args["--train-split"])
+    seed = int(args["--seed"])
+
+    if seed is not None:
+        print("Seeding random generator with seed {}".format(seed))
+        np.random.seed(seed)
+
     if file_extension not in SUPPORTED_FILE_TYPES:
         print(".{} is not currently a supported file type")
         return
@@ -199,22 +232,37 @@ def convert(data_folder, file_extension, file_regex, output_file_name):
     file_regex = file_regex if file_regex is not None else ".*"
     file_regex += r"\." + file_extension
     json_data = extract_json(data_folder, file_regex, file_extension)
+
+    if train_split is None:
+        save_json(json_data, data_folder, output_file_name)
+    else:
+        indices = np.random.permutation(len(json_data)) # randomly split train/test
+        num_train_files = int(len(json_data) * train_split)
+        print("Using {} files for training".format(num_train_files))
+        train_indices = indices[:num_train_files]
+        test_indices = indices[num_train_files:]
+        train_data = [json_data[index] for index in train_indices]
+        test_data = [json_data[index] for index in test_indices]
+        save_json(train_data, data_folder, "train_" + output_file_name)
+        save_json(test_data, data_folder, "test_" + output_file_name)
     
-    output_file_path = os.path.join(data_folder, output_file_name + ".json")
-    print("Saving JSON to {}".format(output_file_path))
-    with open(output_file_path, 'w') as output_file:
-        json.dump(json_data, output_file)
+    
+
+def print_info(json_file):
+    json_data = read_json(json_file)
+    print("{} sequences in this file.".format(len(json_data)))
+    print("{} total measurements".format(sum(len(seq["forward"]) for seq in json_data)))
 
 def main(args):
     if args["convert"]:
-        data_folder = args["--data-folder"]
-        file_extension = args["--file-extension"]
-        file_regex = args["--file-regex"]
-        output_file_name = args["--output-file"]
-        convert(data_folder, file_extension, file_regex, output_file_name)
+        
+        convert(args)
     elif args["validate"]:
         input_file = args["--json-file"]
-        validate(input_file)        
+        validate(input_file)  
+    elif args["info"]:
+        json_file = args["--json-file"] 
+        print_info(json_file)
     
 if __name__ == "__main__":
     args = docopt(__doc__)
