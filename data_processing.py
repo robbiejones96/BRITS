@@ -1,5 +1,5 @@
 """ Usage:
-    data_processing.py convert --data-folder=<data-folder> [options]
+    data_processing.py convert --yaml-file=<yaml-file> [--validate --info]
     data_processing.py validate --json-file=<json-file>
     data_processing.py info --json-file=<json-file>
 
@@ -18,7 +18,7 @@ import json
 import matplotlib.pyplot as plt
 import re
 from docopt import docopt
-from pdb import set_trace
+import yaml
 
 TIME_STEP = 8.3 #TODO: check if units are important, right now this is in milliseconds
 MISSING_VALUE = 0.0 #i.e., a 0 indicates a missing value
@@ -38,10 +38,21 @@ def save_json(json_data, data_folder, json_file_name):
     print("Saving JSON to {}".format(os.path.abspath(output_file_path)))
     with open(output_file_path, 'w') as output_file:
         json.dump(json_data, output_file)
+    return output_file_path
+
+def read_yaml(yaml_file):
+    yaml_data = None
+    print("Loading yaml data from {}".format(os.path.abspath(yaml_file)))
+    with open(yaml_file, 'r') as input_file:
+        yaml_data = yaml.load(input_file, Loader=yaml.Loader)
+    return yaml_data
 
 def validate_pair(pair):
     """
-    Takes the forward and backward 
+    Takes the forward and backward sequences and runs some basic validation.
+    This can be edited depending on your data and what you want to validate.
+
+    :param pair: dict of {"forward": # forward sequence, "backward": # backward sequence}
     """
     forward = pair["forward"]
     backward = pair["backward"]
@@ -61,12 +72,19 @@ def validate(input_file_path, print_every = 50):
     :param input_file_path: the file path to the .json file created from convert
     :param print_every: int determining how often method prints status
     """
+
+    print_banner()
+    print("RUNNING VALIDATION\n".format(input_file_path))
+
     json_data = read_json(input_file_path)
     print("{} sequences in this file.".format(len(json_data)))
     for i, pair in enumerate(json_data):
         if (i + 1) % print_every == 0:
             print("Validated {} sequences so far.".format(i + 1))
         validate_pair(pair)
+
+    print("Validation passed!")
+    print_banner()
 
 def load_and_clean_df(file_path):
     """
@@ -191,11 +209,14 @@ def extract_json(data_folder, regex, file_extension):
             json_data.append(json_entry)
     return json_data
 
-def convert(args):
+def print_banner():
+    print("-" * 80)
+
+def convert(yaml_file, validate_after, info_after):
     """
     Converts files into JSON format for BRITS models
 
-    :param args: dict of command line arguments 
+    :param yaml_file: configuration file with the following information
         - data_folder: path to folder storing data files to be converted
         - file_extension: the file extension of the data files to be converted
             - only the file types in SUPPORTED_FILE_TYPES (see constants at top)
@@ -206,24 +227,41 @@ def convert(args):
         - train_split: proportion of files to use as training set
             - if None, then JSON data will be saved into one file
             - otherwise, will be saved into two files, one for train and one for test
+        - output_folder: path to folder to save JSON data
         - output_file_name: file name to save JSON output file
             - if train_split is not None, then JSON data will be saved into two files
                 - train set will be prefixed by "train_", test set prefixed by "test_"
         - seed: random seed
             - current randomness comes from random train/test split and random removal
               of values for imputation
+
+    :param validate_after: boolean determining whether to run validation at the end
+        - validation can always be run from the command line
+
+    :param info_after: boolean determining whether to pring info about JSON data
+        - info can always be run from the command line
     """
 
-    data_folder = args["--data-folder"]
-    file_extension = args["--file-extension"]
-    file_regex = args["--file-regex"]
-    output_file_name = args["--output-file"]
-    train_split = float(args["--train-split"])
-    seed = int(args["--seed"])
+    print_banner()
+    print("RUNNING CONVERSION\n")
+
+    yaml_data = read_yaml(yaml_file)
+
+    data_folder = yaml_data["data_folder"]
+    file_extension = yaml_data["file_extension"]
+    file_regex = yaml_data["file_regex"]
+    output_file_name = yaml_data["output_file_name"]
+    output_folder = yaml_data["output_folder"]
+    train_split = yaml_data["train_split"]
+    seed = yaml_data["seed"]
 
     if seed is not None:
         print("Seeding random generator with seed {}".format(seed))
         np.random.seed(seed)
+
+    else:
+        print("WARNING: The random number generator has not been seeded.")
+        print("You are encouraged to run again with a random seed for reproducibility!")
 
     if file_extension not in SUPPORTED_FILE_TYPES:
         print(".{} is not currently a supported file type")
@@ -233,8 +271,11 @@ def convert(args):
     file_regex += r"\." + file_extension
     json_data = extract_json(data_folder, file_regex, file_extension)
 
+    output_files = []
+
     if train_split is None:
-        save_json(json_data, data_folder, output_file_name)
+        save_path = save_json(json_data, output_folder, output_file_name)
+        output_files.append(save_path)
     else:
         indices = np.random.permutation(len(json_data)) # randomly split train/test
         num_train_files = int(len(json_data) * train_split)
@@ -243,20 +284,34 @@ def convert(args):
         test_indices = indices[num_train_files:]
         train_data = [json_data[index] for index in train_indices]
         test_data = [json_data[index] for index in test_indices]
-        save_json(train_data, data_folder, "train_" + output_file_name)
-        save_json(test_data, data_folder, "test_" + output_file_name)
-    
-    
+        save_path = save_json(train_data, output_folder, "train_" + output_file_name)
+        output_files.append(save_path)
+        save_path = save_json(test_data, output_folder, "test_" + output_file_name)
+        output_files.append(save_path)
+
+    print_banner()
+
+    if validate_after: # run validation on newly saved JSON
+        for output_file in output_files:
+            validate(output_file)
+
+    if info_after: # print info about newly saved JSON
+        for output_file in output_files:
+            print_info(output_file)
 
 def print_info(json_file):
+    print_banner()
+    print("PRINTING INFO\n".format(json_file))
+
     json_data = read_json(json_file)
     print("{} sequences in this file.".format(len(json_data)))
     print("{} total measurements".format(sum(len(seq["forward"]) for seq in json_data)))
 
+    print_banner()
+
 def main(args):
     if args["convert"]:
-        
-        convert(args)
+        convert(args["--yaml-file"], args["--validate"], args["--info"])
     elif args["validate"]:
         input_file = args["--json-file"]
         validate(input_file)  
