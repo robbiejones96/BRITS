@@ -1,24 +1,19 @@
 """ Usage:
-    data_processing.py convert --yaml-file=<yaml-file> [--validate --info]
+    data_processing.py convert --yaml-file=<yaml-file> [--validate --info] [options]
     data_processing.py validate --json-file=<json-file>
     data_processing.py info --json-file=<json-file>
 
     Options:
-        --file-extension=<file-extension>                       File format for the data files [default: csv]
-        --output-file=<output-file>                             JSON output file name [default: output]
-        --file-regex=<file-regex>                               Regex to match files for extraction    
-        --train-split=<train-split>                             Proportion (float) of files to use as training set   
-        --seed=<seed>                                           Random seed                
+        --print-every=<print-every>         How often to print status during validation [default: 50]              
 """
 
 import pandas as pd
 import numpy as np
 import os
-import json
 import matplotlib.pyplot as plt
 import re
 from docopt import docopt
-import yaml
+from utils import read_json, save_json, read_yaml
 
 TIME_STEP = 8.3 #TODO: check if units are important, right now this is in milliseconds
 MISSING_VALUE = 0.0 #i.e., a 0 indicates a missing value
@@ -26,28 +21,9 @@ COLUMN_TO_REMOVE = 30 #synthetically create missing data point in this column fo
 MISSING_PROB = 0.3 # probability that we manually remove a datapoint for evaluation purposes
 SUPPORTED_FILE_TYPES = set(["csv"])
 
-def read_json(json_file):
-    json_data = None
-    print("Loading json data from {}".format(os.path.abspath(json_file)))
-    with open(json_file, 'r') as input_file:
-        json_data = json.load(input_file)
-    return json_data
 
-def save_json(json_data, data_folder, json_file_name):
-    output_file_path = os.path.join(data_folder, json_file_name + ".json")
-    print("Saving JSON to {}".format(os.path.abspath(output_file_path)))
-    with open(output_file_path, 'w') as output_file:
-        json.dump(json_data, output_file)
-    return output_file_path
 
-def read_yaml(yaml_file):
-    yaml_data = None
-    print("Loading yaml data from {}".format(os.path.abspath(yaml_file)))
-    with open(yaml_file, 'r') as input_file:
-        yaml_data = yaml.load(input_file, Loader=yaml.Loader)
-    return yaml_data
-
-def validate_pair(pair):
+def validate_pair(pair, dimension):
     """
     Takes the forward and backward sequences and runs some basic validation.
     This can be edited depending on your data and what you want to validate.
@@ -61,8 +37,9 @@ def validate_pair(pair):
         forward_x = forward[i]
         backward_x = backward[-(i + 1)]
         assert forward_x == backward_x, "Forward and backward sequences don't match up! Forward is {} and backward is {}".format(forward_x,  backward_x)
+        assert len(forward_x["x_t"]) == dimension, "Dimension of measurement doesn't match! Expected {} but got {}".format(dimension, len(forward_x["x_t"]))
 
-def validate(input_file_path, print_every = 50):
+def validate(args):
     """
     Takes the path to the JSON file created from the convert method and
     validates its structure. This should be edited depending on your data
@@ -74,14 +51,16 @@ def validate(input_file_path, print_every = 50):
     """
 
     print_banner()
-    print("RUNNING VALIDATION\n".format(input_file_path))
+    print("RUNNING VALIDATION\n")
 
-    json_data = read_json(input_file_path)
+    json_data = read_json(args["--json-file"])
     print("{} sequences in this file.".format(len(json_data)))
+    print_every = int(args["--print-every"])
+    dimension = len(json_data[0]["forward"][0]["x_t"])
     for i, pair in enumerate(json_data):
         if (i + 1) % print_every == 0:
             print("Validated {} sequences so far.".format(i + 1))
-        validate_pair(pair)
+        validate_pair(pair, dimension)
 
     print("Validation passed!")
     print_banner()
@@ -153,14 +132,17 @@ def generate_JSON_entry(row, prev_masks = None, prev_deltas = None):
     ret["masks"] = masks.tolist()
     return (ret, masks, deltas)
 
-def extract_forward_and_backward(df):
+def extract_forward_and_backward(df, max_len):
     """
     Takes dataframe for a file and extracts the forward and backward sequence to be saved to JSON
 
     :param df: Pandas dataframe where each row is a time step
+    :param max_len (int): maximum sequence length (sequences longer than this get split)
+        * If max_len is None, then no splitting is performed
+
     :returns: tuple storing (forward, backward)
-        * forward: the JSON information in the original sequence order
-        * backward: the JSON information in the reverse order (for bidirectional RNN)
+        * forward (list): list of sequences (no longer than max_len) in the original order
+        * backward (list): list of sequences (no longer than max_len) in the reverse order (for bidirectional RNN)
     """
     num_rows = df.shape[0]
     masks, deltas = None, None
@@ -169,16 +151,25 @@ def extract_forward_and_backward(df):
         x_t = df.iloc[t][:60] # for now just focusing on first 60 columns
         ret, masks, deltas = generate_JSON_entry(x_t, masks, deltas)
         forward.append(ret)
-    backward = forward[::-1]
-    return (forward, backward)
+    
+    if max_len is None:
+        backward = forward[::-1]
+        return ([forward], [backward])
+    else:
+        num_splits = num_rows // max_len # NOTE: this discards sequences < max_len
+        forward_split = [forward[i * max_len : (i + 1) * max_len] for i in range(num_splits)]
+        backward_split = [forward_seq[::-1] for forward_seq in forward_split]
+        return (forward_split, backward_split)
 
-def extract_json_entry(file_path):
+def extract_json_entries(file_path, max_len):
     """
     Takes path to data file and extracts the forward and
     backward sequences to be saved to JSON
 
-    :param file_path: path to file storing sequence of measurements
-    :returns: dict storing 
+    :param file_path (str): path to file storing sequence of measurements
+    :param max_len (int): maximum sequence length (sequences longer than this get split)
+
+    :returns: list of dicts storing 
         * forward: the JSON information in the original sequence order
         * backward: the JSON information in the reverse order
                     (for bidirectional RNN)
@@ -187,8 +178,8 @@ def extract_json_entry(file_path):
     file_extension = os.path.splitext(file_path)[1]
     if file_extension == ".csv":
         df = load_and_clean_df(file_path)
-        forward, backward = extract_forward_and_backward(df)
-    return {"forward": forward, "backward": backward}
+        forward, backward = extract_forward_and_backward(df, max_len)
+    return [{"forward": f, "backward": b} for f, b in zip(forward, backward)]
 
 def plot_dim(dim, df = None):
     if df is None:
@@ -196,7 +187,7 @@ def plot_dim(dim, df = None):
     dim_array = df[dim].values
     plt.plot(np.arange(dim_array.size), dim_array)
 
-def extract_json(data_folder, regex, file_extension):
+def extract_json(data_folder, regex, file_extension, max_len):
     json_data = []
     print("Extracting files using regex: {}".format(regex))
     regex = re.compile(regex)
@@ -205,14 +196,14 @@ def extract_json(data_folder, regex, file_extension):
         if regex.search(file):
             print("Converting file {} to JSON".format(file))
             file_path = os.path.join(data_folder, file)
-            json_entry = extract_json_entry(file_path)
-            json_data.append(json_entry)
+            json_entries = extract_json_entries(file_path, max_len)
+            json_data.extend(json_entries)
     return json_data
 
 def print_banner():
     print("-" * 80)
 
-def convert(yaml_file, validate_after, info_after):
+def convert(args):
     """
     Converts files into JSON format for BRITS models
 
@@ -231,6 +222,9 @@ def convert(yaml_file, validate_after, info_after):
         - output_file_name: file name to save JSON output file
             - if train_split is not None, then JSON data will be saved into two files
                 - train set will be prefixed by "train_", test set prefixed by "test_"
+        - max_len: maximum sequence length
+            - if sequence is longer than max_len, gets split
+            - can be None for no splitting
         - seed: random seed
             - current randomness comes from random train/test split and random removal
               of values for imputation
@@ -245,7 +239,7 @@ def convert(yaml_file, validate_after, info_after):
     print_banner()
     print("RUNNING CONVERSION\n")
 
-    yaml_data = read_yaml(yaml_file)
+    yaml_data = read_yaml(args["--yaml-file"])
 
     data_folder = yaml_data["data_folder"]
     file_extension = yaml_data["file_extension"]
@@ -253,23 +247,23 @@ def convert(yaml_file, validate_after, info_after):
     output_file_name = yaml_data["output_file_name"]
     output_folder = yaml_data["output_folder"]
     train_split = yaml_data["train_split"]
+    max_len = yaml_data["max_len"]
     seed = yaml_data["seed"]
-
-    if seed is not None:
-        print("Seeding random generator with seed {}".format(seed))
-        np.random.seed(seed)
-
-    else:
-        print("WARNING: The random number generator has not been seeded.")
-        print("You are encouraged to run again with a random seed for reproducibility!")
 
     if file_extension not in SUPPORTED_FILE_TYPES:
         print(".{} is not currently a supported file type")
         return
 
+    if seed is not None:
+        print("Seeding random generator with seed {}".format(seed))
+        np.random.seed(seed)
+    else:
+        print("WARNING: The random number generator has not been seeded.")
+        print("You are encouraged to run again with a random seed for reproducibility!")
+
     file_regex = file_regex if file_regex is not None else ".*"
     file_regex += r"\." + file_extension
-    json_data = extract_json(data_folder, file_regex, file_extension)
+    json_data = extract_json(data_folder, file_regex, file_extension, max_len)
 
     output_files = []
 
@@ -278,8 +272,8 @@ def convert(yaml_file, validate_after, info_after):
         output_files.append(save_path)
     else:
         indices = np.random.permutation(len(json_data)) # randomly split train/test
-        num_train_files = int(len(json_data) * train_split)
-        print("Using {} files for training".format(num_train_files))
+        num_train_seqs = int(len(json_data) * train_split)
+        print("Using {} sequences for training".format(num_train_files))
         train_indices = indices[:num_train_files]
         test_indices = indices[num_train_files:]
         train_data = [json_data[index] for index in train_indices]
@@ -291,11 +285,11 @@ def convert(yaml_file, validate_after, info_after):
 
     print_banner()
 
-    if validate_after: # run validation on newly saved JSON
+    if args["--validate"]: # run validation on newly saved JSON
         for output_file in output_files:
             validate(output_file)
 
-    if info_after: # print info about newly saved JSON
+    if args["--info"]: # print info about newly saved JSON
         for output_file in output_files:
             print_info(output_file)
 
@@ -306,15 +300,16 @@ def print_info(json_file):
     json_data = read_json(json_file)
     print("{} sequences in this file.".format(len(json_data)))
     print("{} total measurements".format(sum(len(seq["forward"]) for seq in json_data)))
+    print("Shortest sequence is of length {}".format(min(len(seq["forward"]) for seq in json_data)))
+    print("Longest sequence is of length {}".format(max(len(seq["forward"]) for seq in json_data)))
 
     print_banner()
 
 def main(args):
     if args["convert"]:
-        convert(args["--yaml-file"], args["--validate"], args["--info"])
+        convert(args)
     elif args["validate"]:
-        input_file = args["--json-file"]
-        validate(input_file)  
+        validate(args)  
     elif args["info"]:
         json_file = args["--json-file"] 
         print_info(json_file)

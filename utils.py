@@ -7,6 +7,31 @@ from torch.autograd import Variable
 
 import pandas as pd
 
+import yaml
+import json
+import os
+
+def read_json(json_file):
+    json_data = None
+    print("Loading json data from {}".format(os.path.abspath(json_file)))
+    with open(json_file, 'r') as input_file:
+        json_data = json.load(input_file)
+    return json_data
+
+def save_json(json_data, data_folder, json_file_name):
+    output_file_path = os.path.join(data_folder, json_file_name + ".json")
+    print("Saving JSON to {}".format(os.path.abspath(output_file_path)))
+    with open(output_file_path, 'w') as output_file:
+        json.dump(json_data, output_file)
+    return output_file_path
+
+def read_yaml(yaml_file):
+    yaml_data = None
+    print("Loading yaml data from {}".format(os.path.abspath(yaml_file)))
+    with open(yaml_file, 'r') as input_file:
+        yaml_data = yaml.load(input_file, Loader=yaml.Loader)
+    return yaml_data
+
 def to_var(var):
     if torch.is_tensor(var):
         var = Variable(var)
