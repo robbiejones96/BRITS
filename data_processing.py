@@ -273,9 +273,9 @@ def convert(args):
     else:
         indices = np.random.permutation(len(json_data)) # randomly split train/test
         num_train_seqs = int(len(json_data) * train_split)
-        print("Using {} sequences for training".format(num_train_files))
-        train_indices = indices[:num_train_files]
-        test_indices = indices[num_train_files:]
+        print("Using {} sequences for training".format(num_train_seqs))
+        train_indices = indices[:num_train_seqs]
+        test_indices = indices[num_train_seqs:]
         train_data = [json_data[index] for index in train_indices]
         test_data = [json_data[index] for index in test_indices]
         save_path = save_json(train_data, output_folder, "train_" + output_file_name)
@@ -287,7 +287,8 @@ def convert(args):
 
     if args["--validate"]: # run validation on newly saved JSON
         for output_file in output_files:
-            validate(output_file)
+            args["--json-file"] = output_file
+            validate(args)
 
     if args["--info"]: # print info about newly saved JSON
         for output_file in output_files:

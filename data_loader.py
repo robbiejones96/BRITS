@@ -9,11 +9,16 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
+from utils import read_json
+
 class MySet(Dataset):
-    def __init__(self,file_path="./json/json"):
+    def __init__(self, file_path, seed):
         super(MySet, self).__init__()
-        self.content = json.load(open(file_path, 'r'))
+        self.content = read_json(file_path)
         self.dim = len(self.content[0]["forward"][0]["x_t"])
+
+        if seed is not None:
+            np.random.seed(seed)
 
         indices = np.arange(len(self.content))
         val_indices = np.random.choice(indices, len(self.content) // 5)
@@ -53,21 +58,21 @@ def collate_fn(batch):
     ret_dict['is_train'] = torch.FloatTensor([seq["is_train"] for seq in batch])
     return ret_dict
 
-def get_loader(file_path, batch_size = 64, shuffle = True):
+def get_loader(file_path, batch_size, seed):
     """
     Reads the file storing the JSON data and loads it in batches
 
     :param file_path: path to the JSON file with data
     :param batch_size: int for batch size
-    :param shuffle: bool determining whether to shuffle data
+    :param seed: random seed for reproducibility
     :returns: tuple storing (data_iter, dimension)
         * data_iter: DataLoader that we can use to iterate over the data
         * dimension: the dimension of x_t which we use to initialize the model
     """
-    data_set = MySet(file_path)
+    data_set = MySet(file_path, seed)
     data_iter = DataLoader(dataset = data_set, \
                               batch_size = batch_size, \
-                              num_workers = 4, \
+                              num_workers = 0, \
                               shuffle = True, \
                               pin_memory = True, \
                               collate_fn = collate_fn

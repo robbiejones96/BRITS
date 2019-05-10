@@ -14,20 +14,14 @@ import data_loader
 from models import rits
 from sklearn import metrics
 
-from ipdb import set_trace
-
-SEQ_LEN = 36
-RNN_HID_SIZE = 64
-
-
 class Model(nn.Module):
-    def __init__(self, dim=SEQ_LEN):
+    def __init__(self, input_dim, hidden_size):
         super(Model, self).__init__()
-        self.build(dim)
+        self.build(input_dim, hidden_size)
 
-    def build(self, dim=SEQ_LEN):
-        self.rits_f = rits.Model(dim)
-        self.rits_b = rits.Model(dim)
+    def build(self, input_dim, hidden_size):
+        self.rits_f = rits.Model(input_dim, hidden_size)
+        self.rits_b = rits.Model(input_dim, hidden_size)
 
     def forward(self, data):
         ret_f = self.rits_f(data, 'forward')

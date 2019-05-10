@@ -16,12 +16,8 @@ from sklearn import metrics
 
 from ipdb import set_trace
 
-SEQ_LEN = 36
-RNN_HID_SIZE = 64
-
-
 class Model(nn.Module):
-    def __init__(self, dim=SEQ_LEN):
+    def __init__(self, dim):
         super(Model, self).__init__()
         self.build(dim)
 

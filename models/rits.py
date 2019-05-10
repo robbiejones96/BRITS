@@ -11,10 +11,7 @@ import utils
 import argparse
 import data_loader
 
-from ipdb import set_trace
 from sklearn import metrics
-
-RNN_HID_SIZE = 64
 
 def binary_cross_entropy_with_logits(input, target, weight=None, size_average=True, reduce=True):
     if not (target.size() == input.size()):
@@ -91,35 +88,37 @@ class TemporalDecay(nn.Module):
         return gamma
 
 class Model(nn.Module):
-    def __init__(self, input_dim = 35, hidden_size = RNN_HID_SIZE):
+    def __init__(self, input_dim, hidden_size):
         super(Model, self).__init__()
         self.build(input_dim, hidden_size)
 
-    def build(self, input_dim=35, hidden_size = RNN_HID_SIZE):
+    def build(self, input_dim, hidden_size):
+        self.hidden_size = hidden_size
         self.rnn_cell = nn.LSTMCell(input_dim * 2, hidden_size)
 
-        self.temp_decay_h = TemporalDecay(input_size = input_dim, output_size = RNN_HID_SIZE, diag = False)
+        self.temp_decay_h = TemporalDecay(input_size = input_dim, output_size = hidden_size, diag = False)
         self.temp_decay_x = TemporalDecay(input_size = input_dim, output_size = input_dim, diag = True)
 
-        self.hist_reg = nn.Linear(RNN_HID_SIZE, input_dim)
+        self.hist_reg = nn.Linear(hidden_size, input_dim)
         self.feat_reg = FeatureRegression(input_dim)
 
         self.weight_combine = nn.Linear(input_dim * 2, input_dim)
 
         self.dropout = nn.Dropout(p = 0.25)
-        self.out = nn.Linear(RNN_HID_SIZE, 1)
+        self.out = nn.Linear(hidden_size, 1)
 
     def forward(self, data, direction):
-    """
-    Passes batched data through the RITS algorithm (4.1.1 in the paper)
+        """
+        Passes batched data through the RITS algorithm (4.1.1 in the paper)
 
-    :param data: (dict) storing time series data for forward and backward directions
-    :param direction: (str) either "forward" or "backward"
-    :returns: (dict) storing
-        * loss: (float) MAE + classification loss (if applicable)
-        * predictions: (Tensor) storing predicted labels
-        * imputations: 
-    """
+        :param data: (dict) storing time series data for forward and backward directions
+        :param direction: (str) either "forward" or "backward"
+        :returns: (dict) storing
+            * loss: (float) MAE + classification loss (if applicable)
+            * predictions: (Tensor) storing predicted labels
+            * imputations: 
+        """
+
         x_t = data[direction]["x_t"]
         masks = data[direction]["masks"]
         deltas = data[direction]["deltas"]
@@ -129,8 +128,8 @@ class Model(nn.Module):
 
         is_train = data["is_train"].view(-1, 1)
 
-        h = torch.zeros((x_t.size()[0], RNN_HID_SIZE))
-        c = torch.zeros((x_t.size()[0], RNN_HID_SIZE))
+        h = torch.zeros((x_t.size()[0], self.hidden_size))
+        c = torch.zeros((x_t.size()[0], self.hidden_size))
 
         if torch.cuda.is_available():
             h, c = h.cuda(), c.cuda()

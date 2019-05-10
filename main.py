@@ -3,11 +3,12 @@
 
 """
 Usage:
-    main.py train --train-src=<train-src> [options]
+    main.py train --yaml-file=<yaml-file> [--evaluate] [options]
+    main.py evaluate --model-path=<model-path> [--results-folder=<results-folder>]
 
 Options:
     -h --help                               show this screen.
-    --cuda                                  use GPU
+    --no-cuda                               don't use GPU (by default will try to use GPU)
     --model=<name>                          model to use (rits, brits, rits_i, brits_i) [default: brits]
     --train-tgt=<file>                      train target file
     --dev-src=<file>                        dev source file
@@ -30,6 +31,7 @@ Options:
     --dropout=<float>                       dropout [default: 0.3]
 """
 
+import os
 from docopt import docopt
 import copy
 import torch
@@ -42,21 +44,50 @@ import numpy as np
 
 import time
 import utils
-import models.rits_i
+
+from models.brits import Model as BRITS
+from models.rits import Model as RITS
+
 import argparse
 import data_loader
-import pandas as pd
-import ujson as json
 
 from sklearn import metrics
-from ipdb import set_trace
+import matplotlib.pyplot as plt
+
+from utils import read_json, save_json, read_yaml
 
 
-def train(model_name, args):
-    data_iter, dim = data_loader.get_loader(args["--train-src"], batch_size = int(args["--batch-size"]))
-    model = getattr(models, model_name).Model(dim)
-    optimizer = optim.Adam(model.parameters(), float(args["--lr"]))
-    for epoch in range(int(args["--max-epoch"])):
+def train(yaml_file, no_cuda, evaluate):
+    yaml_data = read_yaml(yaml_file)
+    model_name = yaml_data["model"]
+    train_data = yaml_data["train_data"]
+    batch_size = yaml_data["batch_size"]
+    optimizer_name = yaml_data["optimizer"]
+    lr = yaml_data["learning_rate"]
+    hidden_size = yaml_data["hidden_size"]
+    max_epoch = yaml_data["max_epoch"]
+    seed = yaml_data["seed"]
+
+    if seed:
+        print("Running training with random seed {}".format(seed))
+        torch.manual_seed(seed)
+    else:
+        print("WARNING: The random number generator has not been seeded.")
+        print("You are encouraged to run again with a random seed for reproducibility!")
+
+    data_iter, input_dim = data_loader.get_loader(train_data, batch_size, seed)
+    model = globals()[model_name](input_dim = input_dim, hidden_size = hidden_size)
+    if not no_cuda and torch.cuda.is_available():
+            print("CUDA is available, using GPU...")
+            print("Pass --no-cuda as an argument to main.py if you don't want GPU")
+            model = model.cuda()
+    else:
+        print("Using CPU...")
+
+    optimizer = getattr(optim, optimizer_name)(model.parameters(), lr=lr)
+    #for epoch in range(max_epoch):
+    losses = []
+    for epoch in range(5):
         model.train()
 
         run_loss = 0.0
@@ -72,7 +103,22 @@ def train(model_name, args):
             print(ret["imputations"])
             break
 
-    evaluate(model, data_iter)
+        losses.append(run_loss / len(data_iter))
+
+    results_folder = yaml_data["results_folder"]
+    model_save_path = os.path.join(results_folder, "trained_model.pt")
+    print("Saving model to {}".format(model_save_path))
+    torch.save(model.state_dict(), model_save_path)
+    loss_graph_save_path = os.path.join(results_folder, "loss_graph.png")
+    plt.plot(np.arange(len(losses)), losses)
+    plt.xlabel("Epoch")
+    plt.ylabel("Average loss")
+    plt.title("Training loss")
+    print("Saving loss graph to {}".format(loss_graph_save_path))
+    plt.savefig(loss_graph_save_path)
+
+    if evaluate:
+        evaluate(model, data_iter)
 
 def evaluate(model, val_iter):
     model.eval()
@@ -120,10 +166,8 @@ def run():
     args = docopt(__doc__)
     
 
-    if args["--cuda"]:
-        model = model.cuda()
-
-    train(args["--model"], args)
+    if args["train"]:
+        train(args["--yaml-file"], args["--no-cuda"], args["--evaluate"])
 
 if __name__ == '__main__':
     run()
