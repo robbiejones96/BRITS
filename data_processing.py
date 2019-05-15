@@ -203,6 +203,16 @@ def extract_json(data_folder, regex, file_extension, max_len):
 def print_banner():
     print("-" * 80)
 
+def random_split(json_data, split):
+    indices = np.random.permutation(len(json_data)) # randomly split train data
+    num_train_seqs = int(len(json_data) * split)
+    
+    train_indices = indices[:num_train_seqs]
+    test_indices = indices[num_train_seqs:]
+    train_data = [json_data[index] for index in train_indices]
+    test_data = [json_data[index] for index in test_indices]
+    return train_data, test_data
+
 def convert(args):
     """
     Converts files into JSON format for BRITS models
@@ -218,6 +228,9 @@ def convert(args):
         - train_split: proportion of files to use as training set
             - if None, then JSON data will be saved into one file
             - otherwise, will be saved into two files, one for train and one for test
+        - val_split: proportion of training sequences to use as validation set
+            - if None, then no splitting will be done
+            - otherwise, validation data will saved into separate file
         - output_folder: path to folder to save JSON data
         - output_file_name: file name to save JSON output file
             - if train_split is not None, then JSON data will be saved into two files
@@ -232,7 +245,7 @@ def convert(args):
     :param validate_after: boolean determining whether to run validation at the end
         - validation can always be run from the command line
 
-    :param info_after: boolean determining whether to pring info about JSON data
+    :param info_after: boolean determining whether to print info about JSON data
         - info can always be run from the command line
     """
 
@@ -247,6 +260,7 @@ def convert(args):
     output_file_name = yaml_data["output_file_name"]
     output_folder = yaml_data["output_folder"]
     train_split = yaml_data["train_split"]
+    val_split = yaml_data["val_split"]
     max_len = yaml_data["max_len"]
     seed = yaml_data["seed"]
 
@@ -267,21 +281,24 @@ def convert(args):
 
     output_files = []
 
-    if train_split is None:
-        save_path = save_json(json_data, output_folder, output_file_name)
-        output_files.append(save_path)
-    else:
-        indices = np.random.permutation(len(json_data)) # randomly split train/test
-        num_train_seqs = int(len(json_data) * train_split)
-        print("Using {} sequences for training".format(num_train_seqs))
-        train_indices = indices[:num_train_seqs]
-        test_indices = indices[num_train_seqs:]
-        train_data = [json_data[index] for index in train_indices]
-        test_data = [json_data[index] for index in test_indices]
-        save_path = save_json(train_data, output_folder, "train_" + output_file_name)
-        output_files.append(save_path)
+    train_data = json_data
+    test_data = None 
+    val_data = None
+
+    if train_split is not None:
+        train_data, test_data = random_split(train_data, train_split)
         save_path = save_json(test_data, output_folder, "test_" + output_file_name)
         output_files.append(save_path)
+
+    if val_split is not None:
+        train_data, val_data = random_split(train_data, 1 - val_split)
+        save_path = save_json(val_data, output_folder, "val_" + output_file_name)
+        output_files.append(save_path)
+
+    print("Using {} sequences for training".format(len(train_data)))
+    save_path = save_json(train_data, output_folder, "train_" + output_file_name)
+    output_files.append(save_path)
+        
 
     print_banner()
 
