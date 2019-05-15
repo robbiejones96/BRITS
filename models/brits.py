@@ -58,12 +58,14 @@ class Model(nn.Module):
             indices = range(tensor_.size()[1])[::-1]
             indices = Variable(torch.LongTensor(indices), requires_grad = False)
 
-            if torch.cuda.is_available():
+            if next(self.parameters()).is_cuda:
                 indices = indices.cuda()
 
             return tensor_.index_select(1, indices)
 
         for key in ret:
+            if next(self.parameters()).is_cuda:
+                ret[key] = ret[key].cuda()
             ret[key] = reverse_tensor(ret[key])
 
         return ret

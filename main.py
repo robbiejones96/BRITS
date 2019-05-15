@@ -5,6 +5,7 @@
 Usage:
     main.py train --yaml-file=<yaml-file> [--evaluate] [options]
     main.py evaluate --model-path=<model-path> [--results-folder=<results-folder>]
+    main.py test --model-path=<model-path> [--results-folder=<results-folder>]
 
 Options:
     -h --help                               show this screen.
@@ -168,6 +169,8 @@ def run():
 
     if args["train"]:
         train(args["--yaml-file"], args["--no-cuda"], args["--evaluate"])
+    elif args["evaluate"]:
+
 
 if __name__ == '__main__':
     run()

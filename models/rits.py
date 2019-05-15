@@ -123,6 +123,11 @@ class Model(nn.Module):
         masks = data[direction]["masks"]
         deltas = data[direction]["deltas"]
 
+        if next(self.parameters()).is_cuda:
+            x_t = x_t.cuda()
+            masks = masks.cuda()
+            deltas = deltas.cuda()
+        
         evals = data[direction]["evals"]
         eval_masks = data[direction]["eval_masks"]
 
