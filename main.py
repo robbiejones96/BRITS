@@ -56,9 +56,10 @@ from sklearn import metrics
 import matplotlib.pyplot as plt
 
 from utils import read_json, save_json, read_yaml
+from pdb import set_trace
 
 
-def train(yaml_file, no_cuda, evaluate):
+def train(yaml_file, no_cuda, evaluate_after):
     yaml_data = read_yaml(yaml_file)
     model_name = yaml_data["model"]
     train_data = yaml_data["train_data"]
@@ -76,7 +77,7 @@ def train(yaml_file, no_cuda, evaluate):
         print("WARNING: The random number generator has not been seeded.")
         print("You are encouraged to run again with a random seed for reproducibility!")
 
-    data_iter, input_dim = data_loader.get_loader(train_data, batch_size, seed)
+    data_iter, input_dim = data_loader.get_loader(train_data, batch_size)
     model = globals()[model_name](input_dim = input_dim, hidden_size = hidden_size)
     if not no_cuda and torch.cuda.is_available():
             print("CUDA is available, using GPU...")
@@ -88,7 +89,7 @@ def train(yaml_file, no_cuda, evaluate):
     optimizer = getattr(optim, optimizer_name)(model.parameters(), lr=lr)
     #for epoch in range(max_epoch):
     losses = []
-    for epoch in range(5):
+    for epoch in range(max_epoch):
         model.train()
 
         run_loss = 0.0
@@ -118,8 +119,13 @@ def train(yaml_file, no_cuda, evaluate):
     print("Saving loss graph to {}".format(loss_graph_save_path))
     plt.savefig(loss_graph_save_path)
 
-    if evaluate:
-        evaluate(model, data_iter)
+    if evaluate_after:
+        if "val_data" not in yaml_data:
+            print("Validation data not found! Check the yaml file you input")
+        else:
+            val_data = yaml_data["val_data"]
+            data_iter, _ = data_loader.get_loader(val_data, batch_size)
+            evaluate(model, data_iter)
 
 def evaluate(model, val_iter):
     model.eval()
@@ -129,14 +135,11 @@ def evaluate(model, val_iter):
 
     evals = []
     imputations = []
+    set_trace()
 
     for idx, data in enumerate(val_iter):
         data = utils.to_var(data)
         ret = model.run_on_batch(data, None)
-
-        pred = ret['predictions'].data.cpu().numpy()
-        label = ret['labels'].data.cpu().numpy()
-        is_train = ret['is_train'].data.cpu().numpy()
 
         eval_masks = ret['eval_masks'].data.cpu().numpy()
         eval_ = ret['evals'].data.cpu().numpy()
@@ -145,23 +148,13 @@ def evaluate(model, val_iter):
         evals += eval_[np.where(eval_masks == 1)].tolist()
         imputations += imputation[np.where(eval_masks == 1)].tolist()
 
-        # collect test label & prediction
-        pred = pred[np.where(is_train == 0)]
-        label = label[np.where(is_train == 0)]
-
-        labels += label.tolist()
-        preds += pred.tolist()
-
-    labels = np.asarray(labels).astype('int32')
-    preds = np.asarray(preds)
-
-    print('AUC {}'.format(metrics.roc_auc_score(labels, preds)))
-
+    
     evals = np.asarray(evals)
     imputations = np.asarray(imputations)
 
     print('MAE', np.abs(evals - imputations).mean())
     print('MRE', np.abs(evals - imputations).sum() / np.abs(evals).sum())
+    print("NRMSE", np.sqrt(np.power(evals - imputations, 2).mean()) / (evals.max() - evals.min()))
 
 def run():
     args = docopt(__doc__)
@@ -170,6 +163,7 @@ def run():
     if args["train"]:
         train(args["--yaml-file"], args["--no-cuda"], args["--evaluate"])
     elif args["evaluate"]:
+        pass
 
 
 if __name__ == '__main__':

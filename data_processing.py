@@ -111,7 +111,7 @@ def generate_JSON_entry(row, prev_masks = None, prev_deltas = None):
     # we want to introduce missing values so we can evaluate our model later
     # later should probably take in eval_masks as a parameter that we can specify
     eval_masks = np.zeros(dim, dtype=int)
-    #eval_masks[COLUMN_TO_REMOVE] = np.random.choice([0, 1], p=[1 - MISSING_PROB, MISSING_PROB])
+    eval_masks[COLUMN_TO_REMOVE] = np.random.choice([0, 1], p=[1 - MISSING_PROB, MISSING_PROB])
 
     x_t = row.copy()
     x_t[eval_masks == 1] = MISSING_VALUE
@@ -318,6 +318,7 @@ def print_info(json_file):
     json_data = read_json(json_file)
     print("{} sequences in this file.".format(len(json_data)))
     print("{} total measurements".format(sum(len(seq["forward"]) for seq in json_data)))
+    print("{} missing values".format(sum(sum(measure["eval_masks"]) for seq in json_data for measure in seq["forward"] )))
     print("Shortest sequence is of length {}".format(min(len(seq["forward"]) for seq in json_data)))
     print("Longest sequence is of length {}".format(max(len(seq["forward"]) for seq in json_data)))
 

@@ -12,6 +12,7 @@ import argparse
 import data_loader
 
 from sklearn import metrics
+from pdb import set_trace
 
 def binary_cross_entropy_with_logits(input, target, weight=None, size_average=True, reduce=True):
     if not (target.size() == input.size()):
@@ -131,8 +132,6 @@ class Model(nn.Module):
         evals = data[direction]["evals"]
         eval_masks = data[direction]["eval_masks"]
 
-        is_train = data["is_train"].view(-1, 1)
-
         h = torch.zeros((x_t.size()[0], self.hidden_size))
         c = torch.zeros((x_t.size()[0], self.hidden_size))
 
@@ -140,7 +139,6 @@ class Model(nn.Module):
             h, c = h.cuda(), c.cuda()
 
         x_loss = 0.0
-        y_loss = 0.0
 
         imputations = []
 
@@ -179,14 +177,7 @@ class Model(nn.Module):
 
         imputations = torch.cat(imputations, dim = 1)
 
-        y_h = self.out(h)
-        # y_loss = binary_cross_entropy_with_logits(y_h, labels, reduce = False)
-        # y_loss = torch.sum(y_loss * is_train) / (torch.sum(is_train) + 1e-5)
-
-        y_h = torch.sigmoid(y_h)
-
-        return {'loss': x_loss / seq_len + y_loss * 0.3, 'predictions': y_h,\
-                'imputations': imputations, 'is_train': is_train,\
+        return {'loss': x_loss / seq_len, 'imputations': imputations, \
                 'evals': evals, 'eval_masks': eval_masks}
 
     def run_on_batch(self, data, optimizer):

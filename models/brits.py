@@ -38,11 +38,9 @@ class Model(nn.Module):
 
         loss = loss_f + loss_b + loss_c
 
-        predictions = (ret_f['predictions'] + ret_b['predictions']) / 2
         imputations = (ret_f['imputations'] + ret_b['imputations']) / 2
 
         ret_f['loss'] = loss
-        ret_f['predictions'] = predictions
         ret_f['imputations'] = imputations
 
         return ret_f
