@@ -1,29 +1,65 @@
 # Description
-The source codes of RITS-I, RITS, BRITS-I, BRITS for health-care data imputation/classification
+The source code of RITS-I, RITS, BRITS-I, BRITS models for time-series imputation/classification. These are based on the original implementations in the repo from which this one is forked. The original paper can be found [here](https://arxiv.org/pdf/1805.10572.pdf).
 
-To run the code:
+To train the model, run:
 
-python main.py --epochs 1000 --batch_size 32 --model brist
+`python main.py train --yaml-file=<path-to-training-yaml-file>`
+   
+We use YAML files to organize the experiments (e.g., keep track of hyperparameter values). The format of the YAML files are described in a section below.
 
 # Data Format
-In json folder, we provide the sample data (400 patients).
+The training/validation/testing data needs to be in JSON format and saved to disk.
 The data format is as follows:
 
-* Each line in json/json is a string represents a python dict
-* The structure of each dict is
-    * forward
-    * backward
-    * label
+* All of the data should be stored in one big JSON list.
 
-    'forward' and 'backward' is a list of python dicts, which represents the input sequence in forward/backward directions. As an example for forward direction, each dict in the sequence contains:
-    * values: list, indicating x_t \in R^d (after elimination)
-    * masks: list, indicating m_t \in R^d
-    * deltas: list, indicating \delta_t \in R^d
-    * forwards: list, the forward imputation, only used in GRU_D, can be any numbers in our model
-    * evals: list, indicating x_t \in R^d (before elimination)
-    * eval_masks: list, indicating whether each value is an imputation ground-truth
+* Each entry in the list is a dictionary which represents one time series (which will have multiple measurements).
+   * Each dictionary has two keys
+      * "forward"
+      * "backward"
+   * "forward" and "backward" each map to a list of dictionaries, which represents the time series in forward/backward directions. Each dictionary in the list encapsulates one time step in the time series. The key/value pairs in the dictionary are:
+      * evals: (list) the original time step measurement with all values present
+      * eval_masks: (list) this specifies which dimensions in evals to purposefully treat as missing for evaluation purposes
+      * x_t: (list) this is the original measurement but with some dimensions set to missing (specified by eval_masks)
+      * masks: (list) list of floats that represents delta_t in the paper
+      * deltas: (list) list of masks for timestep t, represents m_t in the paper
+    
+# YAML File Format (subject to change)
+We use YAML files to keep track of all of the experiments as well as help with processing data into the right JSON format. If you already have a way to get your data into the format specified above, then you only need to look at the YAML format for running training.
 
-# Data Download Links
+## Data Processing
+* data_folder: # path to folder storing data files  
+* file_extension: # file format of the data files (right now only supports CSV)
+* output_folder: # path to folder to save JSON data  
+* output_file_name: # JSON output file name (don’t include “.json”)  
+* file_regex:  # regex to select only certain data files for processing   
+   * If empty, defaults to .*  (i.e., chooses all files with the specified file extension)
+* max_len: 128 # maximum sequence length
+   * Sequence gets chunked into smaller sequences if longer than max_len  
+      * Any sequence shorter than 128 gets discarded  
+   * If empty, no chunking is performed  
+* train_split: # proportion of sequences to use as training set  
+   * Can be empty for no train/test split  
+* val_split: # proportion of training sequences to use as validation set  
+   * Can be empty for no train/val split  
+* seed: # random seed (please use for reproducibility!)  
+
+## Training
+* experiment_name: # name of experiment
+* train_data: # path to JSON storing training data
+* val_data: # path to JSON storing validation data
+   * Can be empy if no validation data
+* model: # name of model to train
+* batch_size: # size of minibatches
+* hidden_size: # size of hidden layer in recurrent model
+* results_folder: # path to folder to save trained model and statistics
+* optimizer: # name of optimizer from torch.optim to use (e.g., Adam)
+* learning_rate: # learning rate to use for optimizer (float)
+* max_epoch: # number of epochs to train for (int)
+* seed: # random seed (please use for reproducibility!)
+
+
+# Data Download Links (from original repo)
 
 * Air Quality Data:
 URL: https://www.microsoft.com/en-us/research/wp-content/uploads/2016/06/STMVL-Release.zip
