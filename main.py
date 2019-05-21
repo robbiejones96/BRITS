@@ -4,7 +4,7 @@
 """
 Usage:
     main.py train --yaml-file=<yaml-file> [--evaluate] [options]
-    main.py evaluate --model-path=<model-path> [--results-folder=<results-folder>]
+    main.py evaluate --yaml-file=<yaml-file> [options]
     main.py test --model-path=<model-path> [--results-folder=<results-folder>]
 
 Options:
@@ -58,17 +58,15 @@ import matplotlib.pyplot as plt
 from utils import read_json, save_json, read_yaml
 from pdb import set_trace
 
-
 def train(yaml_file, no_cuda, evaluate_after):
     yaml_data = read_yaml(yaml_file)
-    model_name = yaml_data["model"]
-    train_data = yaml_data["train_data"]
     batch_size = yaml_data["batch_size"]
     optimizer_name = yaml_data["optimizer"]
     lr = yaml_data["learning_rate"]
-    hidden_size = yaml_data["hidden_size"]
     max_epoch = yaml_data["max_epoch"]
     seed = yaml_data["seed"]
+    val_data = yaml_data["val_data"]
+            
 
     if seed:
         print("Running training with random seed {}".format(seed))
@@ -77,8 +75,7 @@ def train(yaml_file, no_cuda, evaluate_after):
         print("WARNING: The random number generator has not been seeded.")
         print("You are encouraged to run again with a random seed for reproducibility!")
 
-    data_iter, input_dim = data_loader.get_loader(train_data, batch_size)
-    model = globals()[model_name](input_dim = input_dim, hidden_size = hidden_size)
+    data_iter, model = load_data_and_model(yaml_data, "train_data")
     if not no_cuda and torch.cuda.is_available():
             print("CUDA is available, using GPU...")
             print("Pass --no-cuda as an argument to main.py if you don't want GPU")
@@ -86,42 +83,54 @@ def train(yaml_file, no_cuda, evaluate_after):
     else:
         print("Using CPU...")
 
+    val_iter, _ = data_loader.get_loader(val_data, batch_size)
+
     optimizer = getattr(optim, optimizer_name)(model.parameters(), lr=lr)
-    #for epoch in range(max_epoch):
-    losses = []
+
+    train_losses = []
+    val_losses = []
     for epoch in range(max_epoch):
         model.train()
 
-        run_loss = 0.0
+        train_loss = 0.0
 
         for idx, data in enumerate(data_iter):
             ret = model.run_on_batch(data, optimizer)
 
-            run_loss += ret['loss'].item()
+            train_loss += ret['loss'].item()
 
-            print("\r Progress epoch {}, {:.2f}%, average loss {}".format(epoch, (idx + 1) * 100.0 / len(data_iter), run_loss / (idx + 1.0)))
+            print("\r Progress epoch {}, {:.2f}%, average loss {}".format(epoch, (idx + 1) * 100.0 / len(data_iter), train_loss / (idx + 1.0)))
 
-        if run_loss < 20:
+        if train_loss < 20:
             print(ret["imputations"])
             break
 
-        losses.append(run_loss / len(data_iter))
+        train_losses.append(train_loss / len(data_iter))
+        val_loss = 0.0
+        for idx, data in enumerate(val_iter):
+            ret = model.run_on_batch(data, None)
+
+            val_loss += ret['loss'].item()
+        val_losses.append(val_loss / len(val_iter))
+
 
     results_folder = yaml_data["results_folder"]
     model_save_path = os.path.join(results_folder, "trained_model.pt")
     print("Saving model to {}".format(model_save_path))
     torch.save(model.state_dict(), model_save_path)
     loss_graph_save_path = os.path.join(results_folder, "loss_graph.png")
-    plt.plot(np.arange(len(losses)), losses)
+    plt.plot(np.arange(len(train_losses)), train_losses, label="Train loss")
+    plt.plot(np.arange(len(val_losses)), val_losses, label="Validation loss")
     plt.xlabel("Epoch")
     plt.ylabel("Average loss")
-    plt.title("Training loss")
+    plt.title("Training and validation losses")
+    plt.legend(loc = "upper right")
     print("Saving loss graph to {}".format(loss_graph_save_path))
     plt.savefig(loss_graph_save_path)
 
     if evaluate_after:
         if "val_data" not in yaml_data:
-            print("Validation data not found! Check the yaml file you input")
+            print("Validation data not found! Check the yaml file you provided.")
         else:
             val_data = yaml_data["val_data"]
             data_iter, _ = data_loader.get_loader(val_data, batch_size)
@@ -135,7 +144,6 @@ def evaluate(model, val_iter):
 
     evals = []
     imputations = []
-    set_trace()
 
     for idx, data in enumerate(val_iter):
         data = utils.to_var(data)
@@ -156,15 +164,41 @@ def evaluate(model, val_iter):
     print('MRE', np.abs(evals - imputations).sum() / np.abs(evals).sum())
     print("NRMSE", np.sqrt(np.power(evals - imputations, 2).mean()) / (evals.max() - evals.min()))
 
+def load_data_and_model(yaml_data, data_type):
+    data_path = yaml_data[data_type]
+    batch_size = yaml_data["batch_size"]
+    model_name = yaml_data["model"]
+    hidden_size = yaml_data["hidden_size"]
+    data_iter, input_dim = data_loader.get_loader(data_path, batch_size)
+    model = globals()[model_name](input_dim = input_dim, hidden_size = hidden_size)
+    return data_iter, model
+
+def prep_eval(yaml_file, no_cuda):
+    yaml_data = read_yaml(yaml_file)
+    data_iter, model = load_data_and_model(yaml_data, "val_data")
+    results_folder = yaml_data["results_folder"]
+    model_save_path = os.path.join(results_folder, "trained_model.pt")
+    if not no_cuda and torch.cuda.is_available():
+        device_name = "cuda"
+    else:
+        device_name = "cpu"
+    device = torch.device(device_name)
+    map_location = device if device_name == "cpu" else None
+    model.load_state_dict(torch.load(model_save_path, map_location = map_location))
+    if device_name == "gpu": 
+        model.to(device)
+    return data_iter, model
+    
+
 def run():
     args = docopt(__doc__)
-    
 
     if args["train"]:
         train(args["--yaml-file"], args["--no-cuda"], args["--evaluate"])
     elif args["evaluate"]:
-        pass
-
+        data_iter, model = prep_eval(args["--yaml-file"], args["--no-cuda"])
+        evaluate(model, data_iter)
+        
 
 if __name__ == '__main__':
     run()
