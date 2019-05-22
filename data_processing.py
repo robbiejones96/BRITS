@@ -188,11 +188,24 @@ def plot_dim(dim, df = None):
     plt.plot(np.arange(dim_array.size), dim_array)
 
 def extract_json(data_folder, regex, file_extension, max_len):
+    """
+        Searches for files specified by regex and file_extension and
+        converts them into JSON format.
+
+        Note that we sort the file names alphabetically for reproducibility
+        of results (a different ordering of files will result in different
+        datasets).
+
+        :param data_folder (str): folder of data files to search through
+        :param regex (str): regular expression to specify filenames
+        :param file_extension (str): file extension of files to convert
+        :param max_len (int): maximum length of sequences to extract
+    """
     json_data = []
     print("Extracting files using regex: {}".format(regex))
     regex = re.compile(regex)
     
-    for file in os.listdir(data_folder):
+    for file in sorted(os.listdir(data_folder)):
         if regex.search(file):
             print("Converting file {} to JSON".format(file))
             file_path = os.path.join(data_folder, file)
