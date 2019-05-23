@@ -81,7 +81,7 @@ def run_on_data(model, data_iter, optimizer):
 def run_training(model, optimizer, train_iter, val_iter, max_epoch):
     train_losses = []
     val_losses = []
-    for epoch in range(5):
+    for epoch in range(max_epoch):
         log("Epoch {}".format(epoch))
         model.train()
         train_loss = run_on_data(model, train_iter, optimizer)
