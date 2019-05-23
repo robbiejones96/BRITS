@@ -16,8 +16,6 @@ Options:
     --max-num-trial=<int>                   terminate training after how many trials [default: 5]
     --lr-decay=<float>                      learning rate decay [default: 0.5]
     --sample-size=<int>                     sample size [default: 5]
-    --lr=<float>                            learning rate [default: 0.001]
-    --uniform-init=<float>                  uniformly initialize all parameters [default: 0.1]
     --dropout=<float>                       dropout [default: 0.3]
     --log-file=<log-file>                   name of log file to log all output
 """
@@ -168,9 +166,9 @@ def evaluate(model, val_iter):
     evals = np.asarray(evals)
     imputations = np.asarray(imputations)
 
-    log('MAE', np.abs(evals - imputations).mean())
-    log('MRE', np.abs(evals - imputations).sum() / np.abs(evals).sum())
-    log("NRMSE", np.sqrt(np.power(evals - imputations, 2).mean()) / (evals.max() - evals.min()))
+    log("MAE: {}".format(np.abs(evals - imputations).mean()))
+    log("MRE: {}".format(np.abs(evals - imputations).sum() / np.abs(evals).sum()))
+    log("NRMSE: {}".format(np.sqrt(np.power(evals - imputations, 2).mean()) / (evals.max() - evals.min())))
 
 def load_data_and_model(yaml_data, data_type):
     data_path = yaml_data[data_type]
