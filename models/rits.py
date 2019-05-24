@@ -135,6 +135,9 @@ class Model(nn.Module):
         h = torch.zeros((x_t.size()[0], self.hidden_size))
         c = torch.zeros((x_t.size()[0], self.hidden_size))
 
+        if next(self.parameters()).is_cuda:
+            h, c = h.cuda(), c.cuda()
+
         x_loss = 0.0
 
         imputations = []
