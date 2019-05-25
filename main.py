@@ -197,7 +197,7 @@ def prep_eval(yaml_data, no_cuda):
     device = torch.device(device_name)
     map_location = device if device_name == "cpu" else None
     model.load_state_dict(torch.load(model_save_path, map_location = map_location))
-    if device_name == "gpu": 
+    if device_name == "cuda": 
         model.to(device)
     return data_iter, model
 
