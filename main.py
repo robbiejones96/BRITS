@@ -58,7 +58,7 @@ def plot_losses(losses, experiment_name, results_folder):
     log("Saving loss graph to {}".format(loss_graph_save_path))
     plt.savefig(loss_graph_save_path)
 
-def log(string):
+def log(string, log_file = None):
     """
         A convenience function to print to standard output as well as write to
         a log file. Note that LOG_FILE is a global variable set in main and
@@ -67,6 +67,8 @@ def log(string):
 
         param string (str): string to print and log to file
     """
+    if log_file is not None:
+        log_file.write(string + '\n')
     if LOG_FILE is not None:
         LOG_FILE.write(string + '\n')
     print(string)
@@ -140,9 +142,9 @@ def train(args, yaml_data):
     if args["--evaluate"]:
         val_data = yaml_data["val_data"]
         data_iter, _ = data_loader.get_loader(val_data, batch_size)
-        evaluate(model, data_iter)
+        evaluate(model, data_iter, yaml_data["results_folder"])
 
-def evaluate(model, val_iter):
+def evaluate(model, val_iter, results_folder):
     model.eval()
 
     labels = []
@@ -166,9 +168,14 @@ def evaluate(model, val_iter):
     evals = np.asarray(evals)
     imputations = np.asarray(imputations)
 
-    log("MAE: {}".format(np.abs(evals - imputations).mean()))
-    log("MRE: {}".format(np.abs(evals - imputations).sum() / np.abs(evals).sum()))
-    log("NRMSE: {}".format(np.sqrt(np.power(evals - imputations, 2).mean()) / (evals.max() - evals.min())))
+    mae = "MAE: {}".format(np.abs(evals - imputations).mean())
+    mre = "MRE: {}".format(np.abs(evals - imputations).sum() / np.abs(evals).sum())
+    nrmse = "NRMSE: {}".format(np.sqrt(np.power(evals - imputations, 2).mean()) / (evals.max() - evals.min()))
+
+    with open(os.path.join(results_folder, "stats.txt"), 'w') as stats_file:
+        log(mae, stats_file)
+        log(mre, stats_file)
+        log(nrmse, stats_file)
 
 def load_data_and_model(yaml_data, data_type):
     data_path = yaml_data[data_type]
@@ -218,7 +225,6 @@ def main():
     if args["train"]:
         train(args, yaml_data)
     elif args["evaluate"]:
-        yaml_data = read_yaml(yaml_file)
         data_iter, model = prep_eval(yaml_data, args["--no-cuda"])
         evaluate(model, data_iter, yaml_data["results_folder"])
 
