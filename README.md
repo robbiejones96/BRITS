@@ -7,6 +7,10 @@ To train the model, run:
    
 We use YAML files to organize the experiments (e.g., keep track of hyperparameter values). The format of the YAML files are described in a section below.
 
+The two Python files to run are data_processing.py (for data processing) and main.py (for training/validating/testing). They both have [docopt](https://github.com/docopt/docopt) strings at the top, so you can run `python data_processing.py -h` or `python main.py -h` to see the different command line options.
+
+The Python version for this code is Python 3.6. There is a requirements.txt included for [pip](https://pip.pypa.io/en/stable/).
+
 # Data Format
 The training/validation/testing data needs to be in JSON format and saved to disk.
 The data format is as follows:
